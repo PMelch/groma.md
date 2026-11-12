@@ -214,6 +214,7 @@ export interface DetailsOptions extends PaneWrites {
   activeFlows: readonly FlowRef[]
   tab: DetailsTab
   onTab: (tab: DetailsTab) => void,
+  sourceAvailable?: boolean
   code: readonly CodeFile[]
   onSource: (file: string, line?: number) => void,
   workGroups: readonly ElementWorkGroup[]
@@ -353,7 +354,7 @@ export function paintDetails(host: HTMLElement, inspected: Inspected, options: D
     code: () => {
       if (change !== undefined) { comparisonFiles(body, change, onSource); return }
       if (inspected.files.length === 0 && code.length === 0) return
-      body.append(heading('Code'), codeList(inspected.files, code, inspected.findings, inspected.id, onSource))
+      body.append(heading('Code'), codeList(inspected.files, code, inspected.findings, inspected.id, onSource, options.sourceAvailable))
     },
 
   }

@@ -46,6 +46,7 @@ import { readView, writeView } from './url.ts'
 const ZOOM_STEP = 1.25
 const boot = openWebBoot(JSON.parse(document.getElementById('world')!.textContent!) as WebBootPayload, location)
 const data = createWebDataSource(boot)
+const markdownOnly = boot.delivery.kind === 'live' && boot.delivery.markdownOnly === true
 let world = boot.world
 let work = boot.work
 let sheet = boot.sheet
@@ -106,6 +107,7 @@ const authoring = createAuthoring(host, map, data, {
   repaint: () => paintViewState(),
 })
 const source = createSourceControl({
+  available: !markdownOnly,
   host: detailsHost, initialFile: opened.file, initialLine: opened.line,
   element: () => worldElement(primarySelection(selection)), readCode: data.readCode, readSource: data.readSource,
   revision: () => revisionControl.selected, from: () => revisionControl.from, comparison: () => revisionControl.comparison?.components[primarySelection(selection) ?? ''], repaint: paintViewState,
@@ -228,7 +230,7 @@ function paintDetailsState(task: WorkItem | undefined): void {
         paintViewState()
       },
       code: detailsTab === 'how' && revisionControl.comparison === undefined ? source.code() : [],
-      onSource: source.open,
+      onSource: source.open, sourceAvailable: !markdownOnly,
       workGroups: selected?.kind === 'component' ? elementWorkGroups(work, selected.representationId, world) : [],
       onTask: toggleTask,
       ...(selected === undefined ? {} : authoring.paneWrites(selected.id, selectedArchitecture(selection))),

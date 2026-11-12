@@ -79,6 +79,24 @@ Curate this repository's architecture with Groma. Run groma agent-instructions a
 
 You can also curate the map yourself with groma.md's commands (`groma instructions` and `--help`). Setup registers groma.md in your `AGENTS.md` or `CLAUDE.md`, so your agent knows where to start. Keep the map open while you work: changes appear live, and later scans keep your curation.
 
+## View architecture from another computer
+
+After setup and an initial scan, keep Markdown current on the source computer:
+
+```sh
+groma scan --watch
+```
+
+Synchronize the complete architecture folder separately. On the viewing computer:
+
+```sh
+groma --viewer /path/to/received-bundle --port 4747
+```
+
+The viewer reads only the bundle and updates the C4 map as Markdown changes. No source
+checkout, Git, scanners, or Backlog is required. It does not edit the bundle or provide
+source inspection or history. [Markdown-only viewer](docs/viewers/web/index.md#markdown-only-viewer)
+
 ## Work with your agent
 
 Agents use the same CLI as people. `groma agent-instructions` prints an index of task-focused agent guides, and every command explains itself through `--help`. Any file resolves to the architecture that owns it, so an agent can start from the code it just changed:

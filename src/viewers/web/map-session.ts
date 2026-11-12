@@ -1,10 +1,10 @@
-import { EMPTY_WORK_SNAPSHOT } from '@groma/work-source'
+import { EMPTY_WORK_SOURCE, EMPTY_WORK_SNAPSHOT } from '@groma/work-source'
 import type { WorkSource } from '@groma/work-source'
 
 import { watchArchitecture } from '../../architecture-watch.ts'
 import { writes } from '../../authoring.ts'
 import { EditConflict } from '../../authoring-conflict.ts'
-import { GromaBusyError } from '../../groma-filesystem.ts'
+import { GromaBusyError, GromaFileSystem } from '../../groma-filesystem.ts'
 import type { StructuralResult } from '../../curate.ts'
 import { createScannerSession } from '../../scanner/session.ts'
 import { parsePluginSettingsAction, withPluginUpgrades } from '../../plugins/settings.ts'
@@ -61,9 +61,10 @@ async function loadMap(
   revisions: WebRevision[],
   revision: WebRevision | null,
   onProgress?: (progress: StartupProgress) => void | Promise<void>,
+  filesystem?: GromaFileSystem,
 ): Promise<Omit<WebMapPayload, 'generation'>> {
   const snapshot = revision === null
-    ? await loadMapRoot(repositoryRoot, phase => onProgress?.({ phase }))
+    ? await loadMapRoot(repositoryRoot, phase => onProgress?.({ phase }), filesystem)
     : await withGitRevision(repositoryRoot, revision.id, loadMapRoot)
   return { ...snapshot, revision, revisions }
 }
@@ -74,8 +75,10 @@ async function loadMap(
  */
 export async function createWebMapSession(
   repositoryRoot: string,
-  options: { workSource?: WorkSource; scan?: boolean; readOnly?: boolean; onProgress?: (progress: StartupProgress) => void | Promise<void> } = {},
+  options: { workSource?: WorkSource; scan?: boolean; readOnly?: boolean; markdownOnly?: boolean; onProgress?: (progress: StartupProgress) => void | Promise<void> } = {},
 ): Promise<{ fetch: (request: Request) => Promise<Response>; close: () => Promise<void> }> {
+  if (options.markdownOnly) options = { ...options, readOnly: true, workSource: EMPTY_WORK_SOURCE }
+  const filesystem = options.markdownOnly ? GromaFileSystem.openBundle(repositoryRoot) : undefined
   options.onProgress?.({ phase: 'preparing-viewer' })
   const renderer = await bundleRenderer()
   const workSource = await workSourceSession(repositoryRoot, options.workSource)
@@ -110,6 +113,7 @@ export async function createWebMapSession(
 
   /** History is read once when requested; opening the current map does not need snapshots. */
   function readRevisions(): Promise<WebRevision[]> {
+    if (options.markdownOnly) return Promise.resolve([])
     revisionRead ??= listGitRevisions(repositoryRoot).then(next => {
       revisions = next
       map = { ...map, revisions }
@@ -238,7 +242,7 @@ export async function createWebMapSession(
   let worldChain = Promise.resolve()
   async function reloadWorld(): Promise<void> {
     if (closed) return
-    const next = await loadMap(repositoryRoot, revisions, null, options.onProgress)
+    const next = await loadMap(repositoryRoot, revisions, null, options.onProgress, filesystem)
     if (closed) return
     map = {
       generation: map.generation + 1,
@@ -251,7 +255,12 @@ export async function createWebMapSession(
 
   function publishWorld(): Promise<void> {
     const run = worldChain.then(reloadWorld)
-    worldChain = run.catch(() => {})
+    worldChain = run.catch(error => {
+      if (options.markdownOnly && !closed) {
+        map = { ...map, generation: map.generation + 1, viewerError: error instanceof Error ? error.message : String(error) }
+        broadcast(worldEvent())
+      }
+    })
     return run
   }
 
@@ -268,33 +277,42 @@ export async function createWebMapSession(
     })
   }
 
-  let initialScan = true
+  let initializingMap = true
   const scannerSession = options.readOnly ? undefined : await createScannerSession(repositoryRoot, {
     onPluginsChanged: () => workSource.reconfigure(),
     scan: options.scan,
     watchesFile: file => sourceFiles.has(file),
     onProgress: options.onProgress,
-    onFold: () => initialScan ? undefined : publishWorld(),
+    onFold: () => initializingMap ? undefined : publishWorld(),
     onSettings: settings => broadcast(encoder.encode(`event: plugin-settings\ndata: ${JSON.stringify(settings)}\n\n`)),
   })
   await scannerSession?.ready
+  let startupChanged = false
+  const watchMapChanges = () => watchArchitecture(repositoryRoot, {
+    filesystem,
+    onChange: async () => {
+      if (initializingMap) { startupChanged = true; return }
+      await workSource.reconfigure(); await scannerSession?.reconfigure(); await publishWorld().catch(() => {})
+    },
+  })
+  let architectureWatch = options.markdownOnly ? await watchMapChanges() : undefined
   // Initial folds are included in this map; later folds queue behind its load.
-  worldChain = loadMap(repositoryRoot, revisions, null, options.onProgress).then(next => {
+  worldChain = loadMap(repositoryRoot, revisions, null, options.onProgress, filesystem).then(next => {
     map = { generation: 1, ...next }
     for (const file of ownedFiles(map.world)) sourceFiles.add(file)
   })
-  initialScan = false
   try {
     await worldChain
+    initializingMap = false
+    if (startupChanged) await publishWorld()
   } catch (error) {
     closed = true
     await scannerSession?.close()
+    await architectureWatch?.close()
     throw error
   }
   options.onProgress?.({ phase: 'opening-map' })
-  const architectureWatch = await watchArchitecture(repositoryRoot, {
-    onChange: async () => { await workSource.reconfigure(); await scannerSession?.reconfigure(); await publishWorld() },
-  })
+  architectureWatch ??= await watchMapChanges()
   const workWatch = workSource.watch(() => {
     void publishWork()
   })
@@ -386,7 +404,7 @@ export async function createWebMapSession(
   async function pageResponse(url: URL): Promise<Response> {
     const selected = await payloadFor(url)
     if (selected instanceof Response) return selected
-    return new Response(renderPage({ ...selected, delivery: { kind: 'live', readOnly: options.readOnly } }, url), {
+    return new Response(renderPage({ ...selected, delivery: { kind: 'live', readOnly: options.readOnly, markdownOnly: options.markdownOnly } }, url), {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
@@ -432,7 +450,9 @@ export async function createWebMapSession(
 
   async function responseFor(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    if (request.method === 'POST' && options.readOnly) return new Response('This map is read-only because plugins are missing.', { status: 403 })
+    if (options.markdownOnly && ['revision', 'from'].some(key => url.searchParams.has(key))) return new Response('History is unavailable in the Markdown viewer.', { status: 400 })
+    if (options.markdownOnly && ['/code.json', '/source.json', '/task.json', '/task-diff.json', '/plugin-settings'].includes(url.pathname)) return new Response('Unavailable in the Markdown viewer.', { status: 404 })
+    if (request.method === 'POST' && options.readOnly) return new Response('This map is read-only.', { status: 403 })
     const write = request.method === 'POST' ? writeRoutes.get(url.pathname) : undefined
     if (write !== undefined) return write(request)
     const route = routes.get(url.pathname)

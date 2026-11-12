@@ -69,23 +69,30 @@ function selectedDirectory(repositoryRoot: string): GromaDirectory | undefined {
   return found[0]
 }
 
-export class GromaFileSystem {
+export class GromaFileSystem<Directory extends string = string> {
   readonly repositoryRoot: string
-  readonly directory: GromaDirectory
+  readonly directory: Directory
+  private readonly readOnly: boolean
 
-  private constructor(repositoryRoot: string, directory: GromaDirectory) {
+  private constructor(repositoryRoot: string, directory: Directory, readOnly = false) {
+    this.readOnly = readOnly
     this.repositoryRoot = path.resolve(repositoryRoot)
     this.directory = directory
   }
 
-  static find(repositoryRoot: string): GromaFileSystem | undefined {
+  static openBundle(directory: string): GromaFileSystem {
+    const root = path.resolve(directory)
+    return new GromaFileSystem(path.dirname(root), path.basename(root), true)
+  }
+
+  static find(repositoryRoot: string): GromaFileSystem<GromaDirectory> | undefined {
     const root = path.resolve(repositoryRoot)
     const directory = selectedDirectory(root)
     if (directory === undefined) return undefined
     return new GromaFileSystem(root, directory)
   }
 
-  static open(repositoryRoot: string): GromaFileSystem {
+  static open(repositoryRoot: string): GromaFileSystem<GromaDirectory> {
     const filesystem = GromaFileSystem.find(repositoryRoot)
     if (filesystem === undefined) {
       throw new Error(NOT_INITIALIZED)
@@ -96,7 +103,7 @@ export class GromaFileSystem {
   static initialize(
     repositoryRoot: string,
     requestedDirectory?: string,
-  ): GromaFileSystem {
+  ): GromaFileSystem<GromaDirectory> {
     const root = path.resolve(repositoryRoot)
     const existing = selectedDirectory(root)
     if (existing !== undefined) {
@@ -135,6 +142,7 @@ export class GromaFileSystem {
    * Files are replaced atomically. Several replacements are not a crash-recovery transaction.
    */
   async withAccess<T>(operation: () => Promise<T>, timeoutMs = LOCK_TIMEOUT_MS): Promise<T> {
+    if (this.readOnly) return operation()
     const held = access.getStore()
     if (held?.has(this.absolute())) return operation()
     await mkdir(this.absolute(), { recursive: true })
@@ -165,6 +173,7 @@ export class GromaFileSystem {
   }
 
   async write(relative: string, source: string): Promise<void> {
+    if (this.readOnly) throw new Error('This Markdown bundle is read-only.')
     await this.withAccess(async () => {
       const addsIndexEntry = relative !== 'index.md' && relative.endsWith('.md')
         && !this.exists(relative.split('/')[0]!)
@@ -186,6 +195,7 @@ export class GromaFileSystem {
   }
 
   async removeSource(sourceFilename: string): Promise<void> {
+    if (this.readOnly) throw new Error('This Markdown bundle is read-only.')
     await this.withAccess(async () => {
       const relative = this.relative(sourceFilename)
       await unlink(this.absolute(relative))
@@ -195,6 +205,7 @@ export class GromaFileSystem {
 
   /** OKF navigation lists this directory, not the nested C4 architecture. */
   async refreshIndex(): Promise<void> {
+    if (this.readOnly) throw new Error('This Markdown bundle is read-only.')
     return this.withAccess(() => this.writeIndex())
   }
 

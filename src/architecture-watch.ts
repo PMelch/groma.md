@@ -4,9 +4,9 @@ const SETTLE_MS = 150
 
 export async function watchArchitecture(
   repositoryRoot: string,
-  options: { onChange?: () => void | Promise<void> } = {},
+  options: { onChange?: () => void | Promise<void>; filesystem?: GromaFileSystem } = {},
 ): Promise<{ close(): Promise<void> }> {
-  const filesystem = GromaFileSystem.open(repositoryRoot)
+  const filesystem = options.filesystem ?? GromaFileSystem.open(repositoryRoot)
   let timer: ReturnType<typeof setTimeout> | undefined
   let running = false
   let pending = false

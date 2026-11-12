@@ -18,6 +18,7 @@ export interface SourceControl {
 }
 
 interface SourceControlOptions {
+  available?: boolean
   host: HTMLElement
   initialFile?: string
   initialLine?: number
@@ -54,7 +55,7 @@ function errorMessage(reason: unknown): string {
 
 /** Owns the one-level source drill-down without changing the architecture selection beneath it. */
 export function createSourceControl(options: SourceControlOptions): SourceControl {
-  let file = options.initialFile
+  let file = options.available === false ? undefined : options.initialFile
   let line = options.initialLine
   let payload: SourcePayload | undefined
   let error: string | undefined
@@ -103,6 +104,7 @@ export function createSourceControl(options: SourceControlOptions): SourceContro
   }
 
   async function load(nextFile: string, nextLine?: number): Promise<void> {
+    if (options.available === false) return
     const element = options.element()
     if (element?.kind !== 'component') return
     const elementId = element.representationId
@@ -170,6 +172,7 @@ export function createSourceControl(options: SourceControlOptions): SourceContro
     back,
     clear,
     code() {
+      if (options.available === false) return []
       const element = options.element()
       if (element?.kind !== 'component') return []
       const revision = options.revision()
@@ -181,6 +184,7 @@ export function createSourceControl(options: SourceControlOptions): SourceContro
       return codeFiles
     },
     open(nextFile, nextLine) {
+      if (options.available === false) return
       if (file === undefined) detailsScrollTop = options.host.scrollTop
       void load(nextFile, nextLine)
     },

@@ -328,8 +328,16 @@ export function createRevisionControl(options: RevisionControlOptions) {
     }
   }
 
+  function viewerStatus(payload: WebPayload): void {
+    if (boot.delivery.kind !== 'live' || !boot.delivery.markdownOnly) return
+    const status = document.getElementById('read-only')!
+    status.textContent = payload.viewerError ? 'Viewer: update failed' : 'Viewer'
+    status.title = payload.viewerError ?? ''
+    status.setAttribute('role', 'status')
+  }
+  viewerStatus(boot)
   data.subscribe({
-    world: refreshWorld,
+    world(payload) { viewerStatus(payload); refreshWorld(payload) },
     work(payload) {
       if (!live() || payload.workGeneration <= appliedWork) return
       appliedWork = payload.workGeneration

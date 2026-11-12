@@ -246,7 +246,13 @@ function declarationItem(
   return host
 }
 
-function fileRow(group: CodeGroup, onSource: (file: string, line?: number) => void): HTMLElement {
+function fileRow(group: CodeGroup, onSource: (file: string, line?: number) => void, available = true): HTMLElement {
+  if (!available) {
+    const label = document.createElement('span')
+    label.className = 'source-file'
+    label.textContent = group.file
+    return label
+  }
   const file = document.createElement('button')
   file.type = 'button'
   file.className = 'link source-file'
@@ -263,6 +269,7 @@ export function codeList(
   findings: readonly ArchitectureFinding[],
   elementId: string,
   onSource: (file: string, line?: number) => void,
+  available = true,
 ): HTMLElement {
   const list = document.createElement('ul')
   list.className = 'file-groups'
@@ -270,7 +277,7 @@ export function codeList(
   for (const group of groupedCode(references, structure)) {
     const item = document.createElement('li')
     item.className = 'code-file'
-    item.append(fileRow(group, onSource))
+    item.append(fileRow(group, onSource, available))
     if (group.declarations.length > 0) {
       const methods = document.createElement('ul')
       methods.className = 'code-methods'

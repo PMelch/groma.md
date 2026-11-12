@@ -376,3 +376,33 @@ test.concurrent('a missing plugin opens the restore view, and proceeding without
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test.concurrent('explicit Markdown viewer opens a direct bundle without repository services', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'groma-markdown-viewer-'))
+  const bundle = path.join(root, 'received')
+  let viewer: Awaited<ReturnType<typeof startWebViewer>> | undefined
+  try {
+    await cp(path.resolve(import.meta.dir, '../test/fixtures/flows/groma'), bundle, { recursive: true })
+    await writeFile(path.join(bundle, 'config.json'), JSON.stringify({
+      scanners: [{ id: 'missing', source: './does-not-exist', include: ['**/*'] }],
+      workSources: [{ id: 'missing', source: './does-not-exist' }],
+    }))
+    viewer = await startWebViewer(bundle, { port: 0, markdownOnly: true })
+    const response = await fetch(viewer.url + '/world.json')
+    expect(response.headers.get('content-type')).toContain('application/json')
+    const world = await response.json()
+    expect(world.world.elements.length).toBeGreaterThan(0)
+    const html = await (await fetch(viewer.url)).text()
+    expect(html).toContain('"markdownOnly":true')
+    expect(html).not.toContain('Read-only: plugins missing')
+    for (const endpoint of ['/source.json', '/code.json', '/task.json', '/task-diff.json', '/plugin-settings']) {
+      expect((await fetch(viewer.url + endpoint)).status).toBe(404)
+    }
+    expect(await (await fetch(viewer.url + '/revisions.json')).json()).toEqual([])
+    expect((await fetch(viewer.url + '/add', { method: 'POST', body: '{}' })).status).toBe(403)
+  } finally {
+    await viewer?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})

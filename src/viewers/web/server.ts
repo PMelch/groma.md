@@ -26,6 +26,7 @@ type MapSession = Awaited<ReturnType<typeof createWebMapSession>>
 export async function startWebViewer(
   repositoryRoot: string,
   options: {
+    markdownOnly?: boolean
     port?: number
     workSource?: WorkSource
     scan?: boolean
@@ -33,6 +34,15 @@ export async function startWebViewer(
     initDependencies?: Partial<RepositoryInitDependencies>
   } = {},
 ): Promise<{ url: string; close: () => Promise<void> }> {
+  if (options.markdownOnly) {
+    const map = await createWebMapSession(repositoryRoot, { markdownOnly: true })
+    try {
+      const server = Bun.serve({ port: options.port ?? 4747, idleTimeout: 0, fetch: map.fetch })
+      const url = `http://localhost:${server.port}`
+      options.onListening?.(url)
+      return { url, async close() { await server.stop(true); await map.close() } }
+    } catch (error) { await map.close(); throw error }
+  }
   const initial = gromaInitialization(repositoryRoot)
   const progress = createStartupProgress()
   let projectName = (await loadProjectProfile(repositoryRoot))?.title ?? path.basename(repositoryRoot)

@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { compiledAsset } from '../../compiled-asset.ts'
-import { loadAnnotatedArchitecture } from '../../core.ts'
-import { loadProjectProfile } from '../../project-profile.ts'
+import type { GromaFileSystem } from '../../groma-filesystem.ts'
+import { loadArchitecture } from '../../architecture-reader.ts'
+import { annotateArchitecture, loadAnnotatedArchitecture } from '../../core.ts'
+import { parseProjectProfile, loadProjectProfile } from '../../project-profile.ts'
 import { measuredSheetScene } from '../../sheet/scene.ts'
 import type { WebMapPayload } from './payload.ts'
 
@@ -28,16 +30,17 @@ export async function bundleRenderer(): Promise<string> {
 export async function loadMapRoot(
   repositoryRoot: string,
   onProgress?: (phase: MapLoadPhase) => void | Promise<void>,
+  filesystem?: GromaFileSystem,
 ): Promise<Pick<WebMapPayload, 'project' | 'world' | 'sheet' | 'timings'>> {
   onProgress?.('loading-architecture')
   const started = performance.now()
   const [architecture, project] = await Promise.all([
     (async () => {
       const loadStarted = performance.now()
-      const world = await loadAnnotatedArchitecture(repositoryRoot)
+      const world = filesystem ? annotateArchitecture(await loadArchitecture(repositoryRoot, { filesystem })) : await loadAnnotatedArchitecture(repositoryRoot)
       return { world, milliseconds: performance.now() - loadStarted }
     })(),
-    loadProjectProfile(repositoryRoot),
+    filesystem ? filesystem.read('project.md').then(source => parseProjectProfile(source, filesystem.sourceFilename('project.md'))) : loadProjectProfile(repositoryRoot),
   ])
   const world = architecture.world
   // The live host can deliver its status before layout occupies the event loop.

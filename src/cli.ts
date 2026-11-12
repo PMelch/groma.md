@@ -30,24 +30,24 @@ function interactiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true
 }
 
-async function startWebOnNextPort(port: number, scan: boolean, onListening: (url: string) => void) {
+async function startWebOnNextPort(port: number, scan: boolean, onListening: (url: string) => void, bundle?: string) {
   const { startWebViewer } = await import('./viewers/web/server.ts')
   while (true) {
     try {
-      return await startWebViewer(process.cwd(), { port: ++port, scan, onListening })
+      return await startWebViewer(bundle ?? process.cwd(), { port: ++port, scan, onListening, markdownOnly: bundle !== undefined })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
     }
   }
 }
 
-async function openWeb(port?: number, scan = true): Promise<void> {
+async function openWeb(port?: number, scan = true, bundle?: string): Promise<void> {
   try {
     const { startWebViewer } = await import('./viewers/web/server.ts')
     const onListening = (url: string) => console.log(`groma web at ${url}`)
     let viewer: { close: () => Promise<void> }
     try {
-      viewer = await startWebViewer(process.cwd(), { port, scan, onListening })
+      viewer = await startWebViewer(bundle ?? process.cwd(), { port, scan, onListening, markdownOnly: bundle !== undefined })
     } catch (error) {
       if (port === 0 || (error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
       const message = error instanceof Error ? error.message : String(error)
@@ -57,7 +57,7 @@ async function openWeb(port?: number, scan = true): Promise<void> {
         initialValue: false,
       })
       if (accepted !== true) return
-      viewer = await startWebOnNextPort(port ?? 4747, scan, onListening)
+      viewer = await startWebOnNextPort(port ?? 4747, scan, onListening, bundle)
     }
     stopOnSignal(() => viewer.close())
   } catch (error) {
@@ -208,7 +208,13 @@ program
   .version(packageJson.version)
   .description("This repo's architecture in Git")
   .option('--plain', 'print as plain text')
+  .option('--viewer <directory>', 'view a changing architecture Markdown bundle without scanning')
+  .option('--port <number>', 'viewer port to listen on', Number)
   .action(async () => {
+    if (program.opts().viewer !== undefined) {
+      await openWeb(program.opts().port, false, path.resolve(program.opts().viewer))
+      return
+    }
     const interactive = process.stdin.isTTY === true
       && process.stdout.isTTY === true
       && !program.opts().plain

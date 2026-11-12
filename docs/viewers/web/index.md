@@ -50,6 +50,29 @@ to run `groma web --port 0` for an available port.
 
 The shared viewer rules live in [Viewers](../index.md).
 
+## Markdown-only viewer
+
+`groma --viewer <directory> --port 4747` opens an existing architecture bundle directly.
+The directory can have any name; it contains `index.md`, `project.md`, and the complete
+relative tree of element, flow, and draft Markdown. A missing or invalid initial bundle
+fails without starting project setup. `--port 0` selects an available port.
+
+Run setup and the first scan yourself on the source computer, then `groma scan --watch`
+to keep its Markdown current. Synchronization is external to Groma. The viewing computer
+needs Groma but no source checkout, Git, scanners, scanner configuration, or Backlog.
+Copied plugin configuration is not executed or migrated.
+
+The viewer uses the same C4 map, navigation, search, relationships, and flows. It makes
+no bundle writes, including locks, so the input may be read-only. Source references remain
+text; source inspection, Git history, task integration, authoring, and plugin settings are
+unavailable. Code-derived line counts and process-local findings are not reconstructed.
+
+Markdown changes update open browsers through the existing live event stream. A failed
+reload keeps the last good map and shows an update-failed status with the error in its
+tooltip; the next valid file change clears it. Complete-file atomic replacement is
+recommended. Debouncing does not make a multi-file synchronization transactional: a valid
+but incomplete intermediate bundle may appear. No transport or snapshot protocol is added.
+
 ## Static publication
 
 `groma export <directory>` reads stored architecture and writes the web view as
